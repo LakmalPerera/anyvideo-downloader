@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Universal Video Downloader</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+  :root {
+    --bg1: #020617;
+    --bg2: #0f172a;
+    --card: #1e293b;
+    --accent: #3b82f6;
+    --accent2: #22c55e;
+    --danger: #ef4444;
+    --text: #e5e7eb;
+    --muted: #94a3b8;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: Inter, system-ui, sans-serif;
+    background: radial-gradient(circle at top, var(--bg2), var(--bg1));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text);
+  }
+
+  .card {
+    width: 520px;
+    background: linear-gradient(135deg, #1e293b, #020617);
+    border-radius: 18px;
+    padding: 26px;
+    box-shadow: 0 30px 70px rgba(0,0,0,.6);
+    position: relative;
+  }
+
+  h2 {
+    margin: 0 0 14px;
+    font-weight: 500;
+  }
+
+  .url-wrap {
+    display: flex;
+    background: #020617;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--accent);
+  }
+
+  .url-wrap input {
+    flex: 1;
+    padding: 14px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-size: 15px;
+    outline: none;
+  }
+
+  .url-wrap button {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 0 20px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+
+  .section-title {
+    margin: 18px 0 12px;
+    font-size: 17px;
+    color: var(--muted);
+  }
+
+  .qualities {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+
+  .quality, .audio {
+    padding: 14px;
+    border-radius: 12px;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+    font-size: 18px;
+    background: #0f172a;
+    border: 1px solid transparent;
+    transition: .2s;
+  }
+
+  .quality.active, .audio.active {
+    border-color: var(--accent2);
+    background: #022c22;
+  }
+
+  .quality.full {
+    grid-column: span 2;
+  }
+
+  .download-btn {
+    margin-top: 22px;
+    width: 100%;
+    padding: 18px;
+    border-radius: 14px;
+    border: none;
+    font-size: 24px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: black;
+    cursor: pointer;
+    transition: .2s;
+  }
+
+  .download-btn:disabled {
+    opacity: .6;
+    cursor: not-allowed;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #020617;
+    padding: 14px 18px;
+    border-radius: 12px;
+    display: none;
+    font-size: 14px;
+  }
+
+  .toast.success { border-left: 4px solid var(--accent2); }
+  .toast.error { border-left: 4px solid var(--danger); }
+  
+  .download-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+.download-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(34,197,94,.9),
+    rgba(59,130,246,.9)
+  );
+  transform: translateX(-100%);
+  transition: transform .3s ease;
+  z-index: 0;
+}
+
+.download-btn span {
+  position: relative;
+  z-index: 1;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="card">
+  <h2>Video URL</h2>
+
+  <div class="url-wrap">
+    <input id="url" placeholder="Paste video link here…" />
+    <button onclick="paste()">Paste</button>
+  </div>
+
+  <div class="section-title">Choose Quality</div>
+
+  <div class="qualities">
+    <div class="quality" onclick="selectQuality(event,'360')">360p</div>
+    <div class="quality" onclick="selectQuality(event,'480')">480p</div>
+    <div class="quality active" onclick="selectQuality(event,'720')">720p</div>
+
+    <div class="quality full" onclick="selectQuality(event,'1080')">1080p</div>
+    <div class="audio" onclick="selectAudio(event)">🎵 MP3 Audio</div>
+  </div>
+
+ <button id="downloadBtn" class="download-btn" onclick="startDownload()">
+  <span>⬇ Download</span>
+</button>
+
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+  let selectedQuality = "720";
+  let audioOnly = false;
+  let currentId = null;
+
+  function selectQuality(e, q) {
+    audioOnly = false;
+    selectedQuality = q;
+    document.querySelectorAll(".quality, .audio")
+      .forEach(el => el.classList.remove("active"));
+    e.target.classList.add("active");
+  }
+
+  function selectAudio(e) {
+    audioOnly = true;
+    document.querySelectorAll(".quality, .audio")
+      .forEach(el => el.classList.remove("active"));
+    e.target.classList.add("active");
+  }
+
+  async function paste() {
+    try {
+      document.getElementById("url").value =
+        await navigator.clipboard.readText();
+    } catch {
+      showToast("Clipboard access denied", "error");
+    }
+  }
+
+  function showToast(msg, type = "success") {
+    const t = document.getElementById("toast");
+    t.className = `toast ${type}`;
+    t.innerText = msg;
+    t.style.display = "block";
+    setTimeout(() => t.style.display = "none", 3000);
+  }
+
+  async function startDownload() {
+    const url = document.getElementById("url").value.trim();
+    if (!url) return showToast("Please paste a video URL", "error");
+
+    const btn = document.getElementById("downloadBtn");
+    btn.disabled = true;
+    btn.innerText = "Downloading…";
+
+    const res = await fetch("http://localhost:3000/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        quality: audioOnly ? "audio" : selectedQuality
+      })
+    });
+
+    const data = await res.json();
+    currentId = data.id;
+
+    showToast("Download started");
+  }
+
+  async function downloadFile(id) {
+    const btn = document.getElementById("downloadBtn");
+    btn.innerText = "Downloaded ✓";
+
+    const res = await fetch(`http://localhost:3000/file/${id}`);
+    const blob = await res.blob();
+
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = audioOnly ? "audio.mp3" : "video.mp4";
+    a.click();
+
+    showToast("Download completed successfully ✅");
+
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.innerText = "⬇ Download";
+    }, 1500);
+  }
+
+  /* Listen for backend progress / completion */
+  const es = new EventSource("http://localhost:3000/progress");
+
+  es.onmessage = e => {
+    const data = JSON.parse(e.data);
+    if (!currentId) return;
+
+    if (data.done && data.id === currentId) {
+      downloadFile(currentId);
+      currentId = null;
+    }
+
+    if (data.cancelled && data.id === currentId) {
+      showToast("Download cancelled", "error");
+      document.getElementById("downloadBtn").disabled = false;
+      document.getElementById("downloadBtn").innerText = "⬇ Download";
+      currentId = null;
+    }
+  };
+</script>
+
+</body>
+</html>
