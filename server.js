@@ -5,10 +5,11 @@ const path = require("path");
 const YTDlpWrap = require("yt-dlp-wrap").default;
 
 const app = express();
+
+/* ================= yt-dlp INIT ================= */
 const ytDlpWrap = new YTDlpWrap(undefined, {
   autoUpdate: true
 });
-
 
 /* ================= MIDDLEWARE ================= */
 app.use(cors());
@@ -20,6 +21,12 @@ const DOWNLOAD_DIR = path.join(__dirname, "downloads");
 
 if (!fs.existsSync(DOWNLOAD_DIR)) {
   fs.mkdirSync(DOWNLOAD_DIR);
+}
+
+/* ================= FIX yt-dlp PERMISSIONS (RAILWAY) ================= */
+const ytDlpPath = ytDlpWrap.getYtDlpPath();
+if (ytDlpPath && fs.existsSync(ytDlpPath)) {
+  fs.chmodSync(ytDlpPath, 0o755);
 }
 
 /* ================= STATE ================= */
@@ -58,6 +65,8 @@ function startNext() {
     `video_${id}.%(ext)s`
   );
 
+  console.log("Starting download:", url);
+
   const yt = ytDlpWrap.exec([
     "--newline",
     "-f", "mp4/bestaudio+best",
@@ -83,7 +92,12 @@ function startNext() {
     });
   });
 
-  yt.on("close", () => {
+  yt.stderr.on("data", err => {
+    console.error("yt-dlp error:", err.toString());
+  });
+
+  yt.on("close", code => {
+    console.log("Download finished:", id, "code:", code);
     broadcast({ id, done: true });
     currentJob = null;
     startNext();
@@ -91,17 +105,27 @@ function startNext() {
 }
 
 /* ================= ROUTES ================= */
-app.post("/download", (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ error: "URL required" });
 
-  const id = Date.now().toString();
-  queue.push({ id, url });
-  startNext();
+/* START DOWNLOAD (SAFE JSON RESPONSE) */
+app.post("/download", async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) {
+      return res.status(400).json({ error: "URL required" });
+    }
 
-  res.json({ id });
+    const id = Date.now().toString();
+    queue.push({ id, url });
+    startNext();
+
+    res.json({ id });
+  } catch (err) {
+    console.error("DOWNLOAD ROUTE ERROR:", err);
+    res.status(500).json({ error: "Download initialization failed" });
+  }
 });
 
+/* CANCEL DOWNLOAD */
 app.post("/cancel/:id", (req, res) => {
   const { id } = req.params;
 
@@ -118,6 +142,7 @@ app.post("/cancel/:id", (req, res) => {
   res.json({ cancelled: true });
 });
 
+/* SERVE FILE TO BROWSER */
 app.get("/file/:id", (req, res) => {
   const files = fs.readdirSync(DOWNLOAD_DIR);
   const file = files.find(f => f.includes(`video_${req.params.id}`));
@@ -127,7 +152,7 @@ app.get("/file/:id", (req, res) => {
   const filePath = path.join(DOWNLOAD_DIR, file);
 
   res.download(filePath, () => {
-    fs.unlinkSync(filePath);
+    fs.unlinkSync(filePath); // auto cleanup
   });
 });
 
