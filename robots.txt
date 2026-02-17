@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+Disallow: /download
+Disallow: /progress
+Disallow: /file/
+Disallow: /cancel/
+
+Sitemap:https://anyvideo-downloader-production.up.railway.app/sitemap.xml
