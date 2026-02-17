@@ -1,26 +1,30 @@
 const express = require("express");
 const cors = require("cors");
-const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const YTDlpWrap = require("yt-dlp-wrap").default;
 
 const app = express();
+const ytDlpWrap = new YTDlpWrap();
+
+/* ================= MIDDLEWARE ================= */
 app.use(cors());
 app.use(express.json());
-
 app.use(express.static(__dirname));
 
+/* ================= CONSTANTS ================= */
 const DOWNLOAD_DIR = path.join(__dirname, "downloads");
 
 if (!fs.existsSync(DOWNLOAD_DIR)) {
   fs.mkdirSync(DOWNLOAD_DIR);
 }
 
+/* ================= STATE ================= */
 let clients = [];
 let queue = [];
 let currentJob = null;
 
-/* ================= SSE ================= */
+/* ================= SSE (PROGRESS STREAM) ================= */
 app.get("/progress", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -33,26 +37,25 @@ app.get("/progress", (req, res) => {
   });
 });
 
-
-
-
-
 function broadcast(data) {
   clients.forEach(res => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   });
 }
 
-/* ============== DOWNLOAD QUEUE ============== */
+/* ================= QUEUE HANDLER ================= */
 function startNext() {
   if (currentJob || queue.length === 0) return;
 
   currentJob = queue.shift();
   const { id, url } = currentJob;
 
-  const outputTemplate = path.join(DOWNLOAD_DIR, `video_${id}.%(ext)s`);
+  const outputTemplate = path.join(
+    DOWNLOAD_DIR,
+    `video_${id}.%(ext)s`
+  );
 
-  const yt = spawn("yt-dlp", [
+  const yt = ytDlpWrap.exec([
     "--newline",
     "-f", "mp4/bestaudio+best",
     "--merge-output-format", "mp4",
@@ -125,7 +128,7 @@ app.get("/file/:id", (req, res) => {
   });
 });
 
-/* ================= START ================= */
+/* ================= START SERVER ================= */
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
