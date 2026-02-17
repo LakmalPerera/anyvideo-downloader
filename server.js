@@ -6,29 +6,26 @@ const YTDlpWrap = require("yt-dlp-wrap").default;
 
 const app = express();
 
-/* ================= yt-dlp INIT ================= */
+/* ========== yt-dlp INIT ========== */
 const ytDlpWrap = new YTDlpWrap(undefined, {
   autoUpdate: true
 });
 
-/* ================= MIDDLEWARE ================= */
+/* ========== MIDDLEWARE ========== */
 app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
-/* ================= CONSTANTS ================= */
+/* ========== CONSTANTS ========== */
 const DOWNLOAD_DIR = path.join(__dirname, "downloads");
+if (!fs.existsSync(DOWNLOAD_DIR)) fs.mkdirSync(DOWNLOAD_DIR);
 
-if (!fs.existsSync(DOWNLOAD_DIR)) {
-  fs.mkdirSync(DOWNLOAD_DIR);
-}
-
-/* ================= STATE ================= */
+/* ========== STATE ========== */
 let clients = [];
 let queue = [];
 let currentJob = null;
 
-/* ================= SSE ================= */
+/* ========== SSE ========== */
 app.get("/progress", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -47,7 +44,7 @@ function broadcast(data) {
   });
 }
 
-/* ================= QUEUE ================= */
+/* ========== QUEUE HANDLER ========== */
 function startNext() {
   if (currentJob || queue.length === 0) return;
 
@@ -58,8 +55,6 @@ function startNext() {
     DOWNLOAD_DIR,
     `video_${id}.%(ext)s`
   );
-
-  console.log("Downloading:", url);
 
   const yt = ytDlpWrap.exec([
     "--newline",
@@ -86,10 +81,6 @@ function startNext() {
     });
   });
 
-  yt.stderr.on("data", err => {
-    console.error("yt-dlp error:", err.toString());
-  });
-
   yt.on("close", () => {
     broadcast({ id, done: true });
     currentJob = null;
@@ -97,7 +88,7 @@ function startNext() {
   });
 }
 
-/* ================= ROUTES ================= */
+/* ========== ROUTES ========== */
 app.post("/download", (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: "URL required" });
@@ -112,19 +103,4 @@ app.post("/download", (req, res) => {
 app.post("/cancel/:id", (req, res) => {
   const { id } = req.params;
 
-  if (currentJob && currentJob.id === id) {
-    currentJob.process.kill("SIGTERM");
-    currentJob = null;
-    broadcast({ id, cancelled: true });
-    startNext();
-    return res.json({ cancelled: true });
-  }
-
-  queue = queue.filter(job => job.id !== id);
-  broadcast({ id, cancelled: true });
-  res.json({ cancelled: true });
-});
-
-app.get("/file/:id", (req, res) => {
-  const files = fs.readdirSync(DOWNLOAD_DIR);
-  const file = f
+  if (currentJo
