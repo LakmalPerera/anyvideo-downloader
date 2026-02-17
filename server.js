@@ -5,7 +5,10 @@ const path = require("path");
 const YTDlpWrap = require("yt-dlp-wrap").default;
 
 const app = express();
-const ytDlpWrap = new YTDlpWrap();
+const ytDlpWrap = new YTDlpWrap(undefined, {
+  autoUpdate: true
+});
+
 
 /* ================= MIDDLEWARE ================= */
 app.use(cors());
