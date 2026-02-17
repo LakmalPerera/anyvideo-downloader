@@ -1,12 +1,11 @@
-
-
 {
   "name": "anyvideo-downloader",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "postinstall": "pip install yt-dlp"
+   "postinstall": "python -m pip install yt-dlp || pip install yt-dlp || true"
+
   },
   "dependencies": {
     "express": "^4.18.2",
