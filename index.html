@@ -363,23 +363,50 @@ button:hover:not(:disabled) {
       setTimeout(() => t.style.display = "none", 3000);
     }
 
-  function startDownload() {
+async function startDownload() {
   const url = document.getElementById("url").value;
   if (!url) return alert("Paste a video URL");
 
-  document.getElementById("downloadBtn").disabled = true;
-  document.getElementById("skeleton").classList.remove("hidden");
+  downloadBtn.disabled = true;
 
-  fetch(`${API}/download`, {
+  const res = await fetch("/download", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url })
-  })
-  .then(res => res.json())
-  .then(data => {
-    currentId = data.id;
   });
+
+  const data = await res.json();
+  currentDownloadId = data.id;
+
+  // Start SSE
+  eventSource = new EventSource("/progress");
+
+  eventSource.onmessage = (event) => {
+    const d = JSON.parse(event.data);
+
+    if (d.id !== currentDownloadId) return;
+
+    if (d.percent) {
+      progressBar.style.width = d.percent + "%";
+      progressText.innerText = d.percent + "%";
+    }
+
+    if (d.speed) speedEl.innerText = d.speed;
+    if (d.eta) etaEl.innerText = d.eta;
+
+    // ✅ THIS IS THE MISSING PIECE
+    if (d.done) {
+      eventSource.close();
+
+      // TRIGGER BROWSER DOWNLOAD
+      window.location.href = `/file/${currentDownloadId}`;
+
+      // Reset UI
+      downloadBtn.disabled = false;
+    }
+  };
 }
+
 if (d.percent) {
   document.getElementById("skeleton").classList.add("hidden");
   document.getElementById("progress").style.width = d.percent + "%";
