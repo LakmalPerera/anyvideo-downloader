@@ -332,93 +332,95 @@ button:hover:not(:disabled) {
   <div class="toast" id="toast">Download completed 🎉</div>
 
   <script>
-    let selectedQuality = "360";
-    let audioOnly = false;
-    let currentId = null;
+  let selectedQuality = "360";
+  let audioOnly = false;
+  let currentId = null;
+  let eventSource = null;
 
-    const API = ""; // same-origin Railway deployment
+  const downloadBtn = document.getElementById("downloadBtn");
+  const progressBar = document.getElementById("progress");
+  const speedEl = document.getElementById("speed");
+  const etaEl = document.getElementById("eta");
 
-    function selectQuality(q) {
-      audioOnly = false;
-      selectedQuality = q;
-      document.querySelectorAll(".qualities button").forEach(b => b.classList.remove("active"));
-      event.target.classList.add("active");
-    }
+  function selectQuality(q) {
+    audioOnly = false;
+    selectedQuality = q;
+    document.querySelectorAll(".qualities button").forEach(b => b.classList.remove("active"));
+    event.target.classList.add("active");
+  }
 
-    function selectAudio() {
-      audioOnly = true;
-      document.querySelectorAll(".qualities button").forEach(b => b.classList.remove("active"));
-      event.target.classList.add("active");
-    }
+  function selectAudio() {
+    audioOnly = true;
+    document.querySelectorAll(".qualities button").forEach(b => b.classList.remove("active"));
+    event.target.classList.add("active");
+  }
 
-    async function paste() {
-      const text = await navigator.clipboard.readText();
-      document.getElementById("url").value = text;
-    }
+  async function paste() {
+    const text = await navigator.clipboard.readText();
+    document.getElementById("url").value = text;
+  }
 
-    function showToast(msg) {
-      const t = document.getElementById("toast");
-      t.textContent = msg;
-      t.style.display = "block";
-      setTimeout(() => t.style.display = "none", 3000);
-    }
+  function showToast(msg) {
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.style.display = "block";
+    setTimeout(() => t.style.display = "none", 3000);
+  }
 
-async function startDownload() {
-  const url = document.getElementById("url").value;
-  if (!url) return alert("Paste a video URL");
+  async function startDownload() {
+    const url = document.getElementById("url").value;
+    if (!url) return alert("Paste a video URL");
 
-  downloadBtn.disabled = true;
+    downloadBtn.disabled = true;
+    progressBar.style.width = "0%";
+    speedEl.innerText = "Speed: –";
+    etaEl.innerText = "ETA: –";
 
-  const res = await fetch("/download", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url })
-  });
+    document.getElementById("skeleton").classList.remove("hidden");
 
-  const data = await res.json();
-  currentDownloadId = data.id;
+    const res = await fetch("/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url })
+    });
 
-  // Start SSE
-  eventSource = new EventSource("/progress");
+    const data = await res.json();
+    currentId = data.id;
 
-  eventSource.onmessage = (event) => {
-    const d = JSON.parse(event.data);
+    eventSource = new EventSource("/progress");
 
-    if (d.id !== currentDownloadId) return;
+    eventSource.onmessage = (event) => {
+      const d = JSON.parse(event.data);
 
-    if (d.percent) {
-      progressBar.style.width = d.percent + "%";
-      progressText.innerText = d.percent + "%";
-    }
+      if (d.id !== currentId) return;
 
-    if (d.speed) speedEl.innerText = d.speed;
-    if (d.eta) etaEl.innerText = d.eta;
+      if (d.percent) {
+        document.getElementById("skeleton").classList.add("hidden");
+        progressBar.style.width = d.percent + "%";
+      }
 
-    // ✅ THIS IS THE MISSING PIECE
-    if (d.done) {
-      eventSource.close();
+      if (d.speed) speedEl.innerText = "Speed: " + d.speed;
+      if (d.eta) etaEl.innerText = "ETA: " + d.eta;
 
-      // TRIGGER BROWSER DOWNLOAD
-      window.location.href = `/file/${currentDownloadId}`;
+      if (d.done) {
+        eventSource.close();
 
-      // Reset UI
-      downloadBtn.disabled = false;
-    }
-  };
-}
+        // 🔥 THIS TRIGGERS THE FILE DOWNLOAD
+        window.location.href = `/file/${currentId}`;
 
-if (d.percent) {
-  document.getElementById("skeleton").classList.add("hidden");
-  document.getElementById("progress").style.width = d.percent + "%";
-}
+        showToast("Download completed 🎉");
+        downloadBtn.disabled = false;
+      }
+    };
+  }
 
+  function cancel() {
+    if (!currentId) return;
+    fetch(`/cancel/${currentId}`, { method: "POST" });
+    showToast("Download cancelled");
+    downloadBtn.disabled = false;
+  }
+</script>
 
-    function cancel() {
-      if (!currentId) return;
-      fetch(`${API}/cancel/${currentId}`, { method: "POST" });
-      showToast("Download cancelled");
-      document.getElementById("downloadBtn").disabled = false;
-    }
-  </script>
 </body>
 </html>
