@@ -54,13 +54,21 @@ function startNext() {
   if (currentJob || queue.length === 0) return;
 
   currentJob = queue.shift();
-  const { id, url } = currentJob;
+  const { id, url, quality } = currentJob;
 
-  const outputTemplate = path.join(DOWNLOAD_DIR, `video_${id}.%(ext)s`);
+  const format =
+    quality === "audio"
+      ? "bestaudio"
+      : `bestvideo[height<=${quality}]+bestaudio/best`;
+
+  const outputTemplate = path.join(
+    DOWNLOAD_DIR,
+    `video_${id}.%(ext)s`
+  );
 
   const yt = ytDlpWrap.exec([
     "--newline",
-    "-f", "mp4/bestaudio+best",
+    "-f", format,
     "--merge-output-format", "mp4",
     "-o", outputTemplate,
     url
@@ -76,15 +84,13 @@ function startNext() {
     });
   });
 
-  yt.on("error", err => {
-    console.error("yt-dlp error:", err);
-    broadcast({ id, error: "Download failed" });
-    currentJob = null;
-    startNext();
-  });
+  yt.on("close", code => {
+    if (code === 0) {
+      broadcast({ id, done: true });
+    } else {
+      broadcast({ id, error: "Download failed" });
+    }
 
-  yt.on("close", () => {
-    broadcast({ id, done: true });
     currentJob = null;
     startNext();
   });
@@ -92,11 +98,11 @@ function startNext() {
 
 /* ================= ROUTES ================= */
 app.post("/download", (req, res) => {
-  const { url } = req.body;
+  const { url, quality } = req.body;
   if (!url) return res.status(400).json({ error: "URL required" });
 
   const id = Date.now().toString();
-  queue.push({ id, url });
+  queue.push({ id, url, quality: quality || "720" });
   startNext();
 
   res.json({ id });
