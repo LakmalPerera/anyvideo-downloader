@@ -6,30 +6,35 @@ const YTDlpWrap = require("yt-dlp-wrap").default;
 
 const app = express();
 
+/* ✅ autoUpdate downloads yt-dlp binary in Railway */
 const ytDlpWrap = new YTDlpWrap(undefined, {
   autoUpdate: true
 });
 
+/* ================= MIDDLEWARE ================= */
 app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
+/* ================= CONSTANTS ================= */
 const DOWNLOAD_DIR = path.join(__dirname, "downloads");
+
 if (!fs.existsSync(DOWNLOAD_DIR)) {
   fs.mkdirSync(DOWNLOAD_DIR);
 }
 
+/* ================= STATE ================= */
 let clients = [];
 let queue = [];
 let currentJob = null;
 
+/* ================= SSE ================= */
 app.get("/progress", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
 
   clients.push(res);
-
   req.on("close", () => {
     clients = clients.filter(c => c !== res);
   });
@@ -41,16 +46,14 @@ function broadcast(data) {
   });
 }
 
+/* ================= QUEUE ================= */
 function startNext() {
   if (currentJob || queue.length === 0) return;
 
   currentJob = queue.shift();
   const { id, url } = currentJob;
 
-  const outputTemplate = path.join(
-    DOWNLOAD_DIR,
-    `video_${id}.%(ext)s`
-  );
+  const outputTemplate = path.join(DOWNLOAD_DIR, `video_${id}.%(ext)s`);
 
   const yt = ytDlpWrap.exec([
     "--newline",
@@ -60,14 +63,11 @@ function startNext() {
     url
   ]);
 
-  currentJob.process = yt;
-
   yt.stdout.on("data", data => {
     const text = data.toString();
-
     const percent = text.match(/(\d+(?:\.\d+)?)%/);
-    const speed = text.match(/at\s+([\d.]+(?:KiB|MiB|GiB)\/s)/);
-    const eta = text.match(/ETA\s+([\d:]+)/);
+    const speed = text.match(/at\s+([^\s]+)/);
+    const eta = text.match(/ETA\s+([^\s]+)/);
 
     broadcast({
       id,
@@ -84,44 +84,33 @@ function startNext() {
   });
 }
 
+/* ================= ROUTES ================= */
 app.post("/download", (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ error: "URL required" });
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: "URL required" });
 
-  const id = Date.now().toString();
-  queue.push({ id, url });
-  startNext();
-
-  res.json({ id });
-});
-
-app.post("/cancel/:id", (req, res) => {
-  const { id } = req.params;
-
-  if (currentJob && currentJob.id === id) {
-    currentJob.process.kill("SIGTERM");
-    currentJob = null;
-    broadcast({ id, cancelled: true });
+    const id = Date.now().toString();
+    queue.push({ id, url });
     startNext();
-    return res.json({ cancelled: true });
-  }
 
-  queue = queue.filter(j => j.id !== id);
-  broadcast({ id, cancelled: true });
-  res.json({ cancelled: true });
+    res.json({ id });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Download failed" });
+  }
 });
 
 app.get("/file/:id", (req, res) => {
   const files = fs.readdirSync(DOWNLOAD_DIR);
   const file = files.find(f => f.includes(`video_${req.params.id}`));
+
   if (!file) return res.sendStatus(404);
 
-  res.download(path.join(DOWNLOAD_DIR, file), () => {
-    fs.unlinkSync(path.join(DOWNLOAD_DIR, file));
-  });
+  const filePath = path.join(DOWNLOAD_DIR, file);
+  res.download(filePath, () => fs.unlinkSync(filePath));
 });
 
+/* ================= START ================= */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log("Server running on", PORT));
