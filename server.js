@@ -5,26 +5,18 @@ const path = require("path");
 const YTDlpWrap = require("yt-dlp-wrap").default;
 
 const app = express();
+const ytDlp = new YTDlpWrap(undefined, { autoUpdate: true });
 
-/* yt-dlp auto download (Railway compatible) */
-const ytDlpWrap = new YTDlpWrap(undefined, { autoUpdate: true });
-
-/* ================= MIDDLEWARE ================= */
 app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
-/* ================= HEALTH ================= */
-app.get("/health", (_, res) => res.send("OK"));
-
-/* ================= CONSTANTS ================= */
+/* ================= DIR ================= */
 const DOWNLOAD_DIR = process.env.RAILWAY_ENVIRONMENT
   ? "/tmp/downloads"
   : path.join(__dirname, "downloads");
 
-if (!fs.existsSync(DOWNLOAD_DIR)) {
-  fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
-}
+fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 
 /* ================= STATE ================= */
 let clients = [];
@@ -44,8 +36,8 @@ app.get("/progress", (req, res) => {
 });
 
 function broadcast(data) {
-  clients.forEach(res =>
-    res.write(`data: ${JSON.stringify(data)}\n\n`)
+  clients.forEach(c =>
+    c.write(`data: ${JSON.stringify(data)}\n\n`)
   );
 }
 
@@ -54,34 +46,30 @@ function startNext() {
   if (currentJob || queue.length === 0) return;
 
   currentJob = queue.shift();
-  const { id, url, quality } = currentJob;
+  const { id, url } = currentJob;
 
-  const format =
-    quality === "audio"
-      ? "bestaudio"
-      : `bestvideo[height<=${quality}]+bestaudio/best`;
+  const output = path.join(DOWNLOAD_DIR, `video_${id}.%(ext)s`);
 
-  const outputTemplate = path.join(
-    DOWNLOAD_DIR,
-    `video_${id}.%(ext)s`
-  );
-
-  const yt = ytDlpWrap.exec([
+  const yt = ytDlp.exec([
     "--newline",
-    "-f", format,
+    "-f", "bestvideo+bestaudio/best",
     "--merge-output-format", "mp4",
-    "-o", outputTemplate,
+    "-o", output,
     url
   ]);
 
-  yt.stdout.on("data", data => {
-    const text = data.toString();
+  yt.stdout.on("data", d => {
+    const t = d.toString();
     broadcast({
       id,
-      percent: text.match(/(\d+(?:\.\d+)?)%/)?.[1] || null,
-      speed: text.match(/at\s+([^\s]+)/)?.[1] || null,
-      eta: text.match(/ETA\s+([^\s]+)/)?.[1] || null
+      percent: t.match(/(\d+(\.\d+)?)%/)?.[1] || null,
+      speed: t.match(/at\s+([^\s]+)/)?.[1] || null,
+      eta: t.match(/ETA\s+([^\s]+)/)?.[1] || null
     });
+  });
+
+  yt.stderr.on("data", d => {
+    console.error("yt-dlp:", d.toString());
   });
 
   yt.on("close", code => {
@@ -90,7 +78,6 @@ function startNext() {
     } else {
       broadcast({ id, error: "Download failed" });
     }
-
     currentJob = null;
     startNext();
   });
@@ -98,14 +85,21 @@ function startNext() {
 
 /* ================= ROUTES ================= */
 app.post("/download", (req, res) => {
-  const { url, quality } = req.body;
+  const { url } = req.body;
   if (!url) return res.status(400).json({ error: "URL required" });
 
   const id = Date.now().toString();
-  queue.push({ id, url, quality: quality || "720" });
+  queue.push({ id, url });
   startNext();
 
   res.json({ id });
+});
+
+app.post("/cancel/:id", (_, res) => {
+  if (currentJob) {
+    currentJob = null;
+  }
+  res.json({ cancelled: true });
 });
 
 app.get("/file/:id", (req, res) => {
@@ -114,8 +108,9 @@ app.get("/file/:id", (req, res) => {
 
   if (!file) return res.sendStatus(404);
 
-  const filePath = path.join(DOWNLOAD_DIR, file);
-  res.download(filePath, () => fs.unlinkSync(filePath));
+  res.download(path.join(DOWNLOAD_DIR, file), () =>
+    fs.unlinkSync(path.join(DOWNLOAD_DIR, file))
+  );
 });
 
 /* ================= START ================= */
