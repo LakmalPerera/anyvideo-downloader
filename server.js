@@ -6,21 +6,24 @@ const YTDlpWrap = require("yt-dlp-wrap").default;
 
 const app = express();
 
-/* ✅ autoUpdate downloads yt-dlp binary in Railway */
-const ytDlpWrap = new YTDlpWrap(undefined, {
-  autoUpdate: true
-});
+/* yt-dlp auto download (Railway compatible) */
+const ytDlpWrap = new YTDlpWrap(undefined, { autoUpdate: true });
 
 /* ================= MIDDLEWARE ================= */
 app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
+/* ================= HEALTH ================= */
+app.get("/health", (_, res) => res.send("OK"));
+
 /* ================= CONSTANTS ================= */
-const DOWNLOAD_DIR = path.join(__dirname, "downloads");
+const DOWNLOAD_DIR = process.env.RAILWAY_ENVIRONMENT
+  ? "/tmp/downloads"
+  : path.join(__dirname, "downloads");
 
 if (!fs.existsSync(DOWNLOAD_DIR)) {
-  fs.mkdirSync(DOWNLOAD_DIR);
+  fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 }
 
 /* ================= STATE ================= */
@@ -41,9 +44,9 @@ app.get("/progress", (req, res) => {
 });
 
 function broadcast(data) {
-  clients.forEach(res => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-  });
+  clients.forEach(res =>
+    res.write(`data: ${JSON.stringify(data)}\n\n`)
+  );
 }
 
 /* ================= QUEUE ================= */
@@ -65,16 +68,19 @@ function startNext() {
 
   yt.stdout.on("data", data => {
     const text = data.toString();
-    const percent = text.match(/(\d+(?:\.\d+)?)%/);
-    const speed = text.match(/at\s+([^\s]+)/);
-    const eta = text.match(/ETA\s+([^\s]+)/);
-
     broadcast({
       id,
-      percent: percent?.[1] || null,
-      speed: speed?.[1] || null,
-      eta: eta?.[1] || null
+      percent: text.match(/(\d+(?:\.\d+)?)%/)?.[1] || null,
+      speed: text.match(/at\s+([^\s]+)/)?.[1] || null,
+      eta: text.match(/ETA\s+([^\s]+)/)?.[1] || null
     });
+  });
+
+  yt.on("error", err => {
+    console.error("yt-dlp error:", err);
+    broadcast({ id, error: "Download failed" });
+    currentJob = null;
+    startNext();
   });
 
   yt.on("close", () => {
@@ -86,24 +92,19 @@ function startNext() {
 
 /* ================= ROUTES ================= */
 app.post("/download", (req, res) => {
-  try {
-    const { url } = req.body;
-    if (!url) return res.status(400).json({ error: "URL required" });
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: "URL required" });
 
-    const id = Date.now().toString();
-    queue.push({ id, url });
-    startNext();
+  const id = Date.now().toString();
+  queue.push({ id, url });
+  startNext();
 
-    res.json({ id });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "Download failed" });
-  }
+  res.json({ id });
 });
 
 app.get("/file/:id", (req, res) => {
-  const files = fs.readdirSync(DOWNLOAD_DIR);
-  const file = files.find(f => f.includes(`video_${req.params.id}`));
+  const file = fs.readdirSync(DOWNLOAD_DIR)
+    .find(f => f.includes(`video_${req.params.id}`));
 
   if (!file) return res.sendStatus(404);
 
